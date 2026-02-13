@@ -77,17 +77,28 @@ class TestBatchDownload:
 
     @patch('rs_pipeline.fetch.time.sleep')
     @patch('rs_pipeline.fetch.yf.download')
-    def test_retry_on_rate_limit(self, mock_dl, mock_sleep):
-        """Empty result triggers retry with backoff before giving up."""
+    def test_retry_on_rate_limit_multi_ticker(self, mock_dl, mock_sleep):
+        """Empty result for multi-ticker batch triggers retry with backoff."""
         from rs_pipeline.fetch import _yf_download_with_retry
         # Return empty 4 times (initial + 3 retries)
         mock_dl.return_value = pd.DataFrame()
-        result = _yf_download_with_retry(['AAPL'], '2024-01-02', '2024-01-08')
+        result = _yf_download_with_retry(['AAPL', 'MSFT'], '2024-01-02', '2024-01-08')
         assert result == {}
         # 3 retries + 1 initial = 4 calls total
         assert mock_dl.call_count == 4
         # 3 sleeps with exponential backoff
         assert mock_sleep.call_count == 3
+
+    @patch('rs_pipeline.fetch.time.sleep')
+    @patch('rs_pipeline.fetch.yf.download')
+    def test_no_retry_single_ticker(self, mock_dl, mock_sleep):
+        """Single-ticker empty result skips retry (likely delisted, not rate limited)."""
+        from rs_pipeline.fetch import _yf_download_with_retry
+        mock_dl.return_value = pd.DataFrame()
+        result = _yf_download_with_retry(['FAKE'], '2024-01-02', '2024-01-08')
+        assert result == {}
+        assert mock_dl.call_count == 1
+        mock_sleep.assert_not_called()
 
     @patch('rs_pipeline.fetch.config.TWELVE_DATA_API_KEY', '')
     def test_no_twelve_data_key_graceful(self):

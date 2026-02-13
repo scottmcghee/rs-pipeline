@@ -35,7 +35,15 @@ class ConnectionPool:
         try:
             yield conn
         finally:
-            self._pool.putconn(conn)
+            try:
+                self._pool.putconn(conn)
+            except Exception:
+                # Connection went stale (e.g. server closed it during long
+                # downloads). Discard it so the pool creates a fresh one.
+                try:
+                    self._pool.putconn(conn, close=True)
+                except Exception:
+                    pass
 
     def close_all(self):
         self._pool.closeall()

@@ -59,16 +59,22 @@ def batch_download_ohlc(tickers: List[str], start: str,
 
 def _yf_download_with_retry(batch: List[str], start: str,
                             end: str) -> Dict[str, pd.DataFrame]:
-    """Download a single batch from yfinance with retry on blanket rate limit."""
-    result: Dict[str, pd.DataFrame] = {}
+    """Download a single batch from yfinance with retry on blanket rate limit.
 
-    for attempt in range(config.RATE_LIMIT_MAX_RETRIES + 1):
+    Only retries when batch has multiple tickers (empty = likely rate limited).
+    Single-ticker empty results are assumed delisted and skip straight to fallback.
+    """
+    result: Dict[str, pd.DataFrame] = {}
+    # Only retry multi-ticker batches; single-ticker empty = probably delisted
+    max_retries = config.RATE_LIMIT_MAX_RETRIES if len(batch) > 1 else 0
+
+    for attempt in range(max_retries + 1):
         try:
             df = yf.download(batch, start=start, end=end,
                              threads=True, progress=False, group_by='ticker')
         except Exception as e:
             logger.error("yf.download failed (attempt %d): %s", attempt + 1, e)
-            if attempt < config.RATE_LIMIT_MAX_RETRIES:
+            if attempt < max_retries:
                 wait = config.RATE_LIMIT_BACKOFF_BASE * (2 ** attempt)
                 logger.info("Rate limit backoff: waiting %ds", wait)
                 time.sleep(wait)
@@ -76,7 +82,7 @@ def _yf_download_with_retry(batch: List[str], start: str,
             return result
 
         if df.empty:
-            if attempt < config.RATE_LIMIT_MAX_RETRIES:
+            if attempt < max_retries:
                 wait = config.RATE_LIMIT_BACKOFF_BASE * (2 ** attempt)
                 logger.warning("Empty result for %d tickers (attempt %d), "
                                "retrying in %ds", len(batch), attempt + 1, wait)
@@ -106,11 +112,20 @@ def _yf_download_with_retry(batch: List[str], start: str,
 
 
 def _normalise_ohlc(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Normalise a yfinance DataFrame to lowercase columns."""
+    """Normalise a yfinance DataFrame to lowercase columns.
+
+    Handles both flat columns ('Open') and MultiIndex tuples (('Open', 'AAPL'))
+    that newer yfinance versions return with group_by='ticker'.
+    """
     if df is None or df.empty:
         return None
     df = df.copy()
-    df.columns = [c.lower() for c in df.columns]
+    # Handle MultiIndex columns from yfinance group_by='ticker'
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = [c[0].lower() if isinstance(c, tuple) else c.lower()
+                      for c in df.columns]
+    else:
+        df.columns = [c.lower() for c in df.columns]
     needed = {'open', 'high', 'low', 'close', 'volume'}
     if not needed.issubset(set(df.columns)):
         return None
