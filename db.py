@@ -73,13 +73,21 @@ def _safe_float(val) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 def ensure_delisted_table(conn) -> None:
-    """Create the delisted_tickers table if it doesn't exist."""
+    """Create delisted_tickers and ticker_fetch_failures tables."""
     with conn.cursor() as cur:
         cur.execute("""
         CREATE TABLE IF NOT EXISTS delisted_tickers (
             ticker VARCHAR(10) PRIMARY KEY,
             detected_date DATE NOT NULL,
             original_etfs TEXT
+        );
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS ticker_fetch_failures (
+            ticker VARCHAR(10) PRIMARY KEY,
+            failure_count INTEGER NOT NULL DEFAULT 1,
+            first_failure_date DATE NOT NULL,
+            last_failure_date DATE NOT NULL
         );
         """)
     conn.commit()
@@ -556,9 +564,56 @@ def bulk_upsert_junc_stock_etf(conn, records: List[tuple]) -> None:
 # Delisted ticker management
 # ---------------------------------------------------------------------------
 
+# Number of failures on distinct dates before a ticker is considered delisted
+DELIST_FAILURE_THRESHOLD = 3
+
+
+def record_fetch_failure(conn, ticker: str, failure_date: str) -> int:
+    """Increment failure counter for a ticker. Returns new failure_count.
+
+    Only increments if the last failure was on a different date (so multiple
+    failures within the same run don't stack up).
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO ticker_fetch_failures (ticker, failure_count,
+                                               first_failure_date, last_failure_date)
+            VALUES (%s, 1, %s, %s)
+            ON CONFLICT (ticker) DO UPDATE SET
+                failure_count = CASE
+                    WHEN ticker_fetch_failures.last_failure_date < EXCLUDED.last_failure_date
+                    THEN ticker_fetch_failures.failure_count + 1
+                    ELSE ticker_fetch_failures.failure_count
+                END,
+                last_failure_date = GREATEST(
+                    ticker_fetch_failures.last_failure_date,
+                    EXCLUDED.last_failure_date
+                )
+            RETURNING failure_count
+        """, (ticker, failure_date, failure_date))
+        count = cur.fetchone()[0]
+    conn.commit()
+    return count
+
+
+def fetch_failed_tickers(conn) -> Dict[str, int]:
+    """Return {ticker: failure_count} for all tracked failures."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT ticker, failure_count FROM ticker_fetch_failures")
+        return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def clear_fetch_failure(conn, ticker: str) -> None:
+    """Remove a ticker from the failure tracker (e.g. after successful fetch)."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM ticker_fetch_failures WHERE ticker = %s",
+                    (ticker,))
+    conn.commit()
+
+
 def insert_delisted_ticker(conn, ticker: str, detected_date: str,
                            etf_list: List[str]) -> None:
-    """Record a ticker as delisted."""
+    """Record a ticker as confirmed delisted."""
     etfs_str = ','.join(etf_list) if etf_list else None
     with conn.cursor() as cur:
         cur.execute("""
@@ -570,7 +625,7 @@ def insert_delisted_ticker(conn, ticker: str, detected_date: str,
 
 
 def fetch_delisted_tickers(conn) -> set:
-    """Return set of tickers known to be delisted."""
+    """Return set of tickers confirmed as delisted."""
     with conn.cursor() as cur:
         cur.execute("SELECT ticker FROM delisted_tickers")
         return {row[0] for row in cur.fetchall()}
@@ -596,6 +651,9 @@ def soft_delete_ticker(conn, ticker: str) -> None:
     with conn.cursor() as cur:
         cur.execute("DELETE FROM junc_stock_etf WHERE ticker = %s", (ticker,))
     conn.commit()
+
+    # Clean up from failure tracker
+    clear_fetch_failure(conn, ticker)
 
     logger.info("Soft-deleted ticker %s (was in ETFs: %s)", ticker,
                 ','.join(etf_list) if etf_list else 'none')

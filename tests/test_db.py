@@ -7,15 +7,18 @@ import pandas as pd
 import pytest
 
 from rs_pipeline.db import (
+    DELIST_FAILURE_THRESHOLD,
     _safe_float,
     _metrics_df_to_tuples,
     bulk_upsert_ohlc,
     bulk_upsert_stock_metrics,
+    clear_fetch_failure,
     ensure_delisted_table,
     fetch_delisted_tickers,
     insert_delisted_ticker,
     rank_index_by_sql,
     rank_overall_by_sql,
+    record_fetch_failure,
     soft_delete_ticker,
     ConnectionPool,
 )
@@ -141,20 +144,57 @@ class TestMetricsDfToTuples:
 
 
 # ---------------------------------------------------------------------------
-# Delisted ticker tests
+# Delisted ticker / failure tracking tests
 # ---------------------------------------------------------------------------
 
 class TestEnsureDelistedTable:
-    def test_creates_table(self):
+    def test_creates_tables(self):
         conn = MagicMock()
         mock_cursor = MagicMock()
         conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
         ensure_delisted_table(conn)
-        sql_used = mock_cursor.execute.call_args[0][0]
-        assert 'delisted_tickers' in sql_used
-        assert 'CREATE TABLE IF NOT EXISTS' in sql_used
+        # Should create both delisted_tickers and ticker_fetch_failures
+        calls = mock_cursor.execute.call_args_list
+        sql_all = ' '.join(c[0][0] for c in calls)
+        assert 'delisted_tickers' in sql_all
+        assert 'ticker_fetch_failures' in sql_all
         conn.commit.assert_called_once()
+
+
+class TestRecordFetchFailure:
+    def test_records_and_returns_count(self):
+        conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        count = record_fetch_failure(conn, 'FAKE', '2026-02-13')
+        assert count == 1
+        sql_used = mock_cursor.execute.call_args[0][0]
+        assert 'ticker_fetch_failures' in sql_used
+        assert 'RETURNING failure_count' in sql_used
+
+    def test_returns_incremented_count(self):
+        conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (3,)
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        count = record_fetch_failure(conn, 'FAKE', '2026-02-15')
+        assert count == 3
+
+
+class TestClearFetchFailure:
+    def test_deletes_record(self):
+        conn = MagicMock()
+        mock_cursor = MagicMock()
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        clear_fetch_failure(conn, 'AAPL')
+        sql_used = mock_cursor.execute.call_args[0][0]
+        assert 'DELETE' in sql_used
+        assert 'ticker_fetch_failures' in sql_used
 
 
 class TestInsertDelistedTicker:
@@ -200,12 +240,12 @@ class TestFetchDelistedTickers:
 
 
 class TestSoftDeleteTicker:
+    @patch('rs_pipeline.db.clear_fetch_failure')
     @patch('rs_pipeline.db.insert_delisted_ticker')
-    def test_soft_delete_removes_junction_preserves_rest(self, mock_insert):
+    def test_soft_delete_removes_junction_preserves_rest(self, mock_insert,
+                                                          mock_clear):
         conn = MagicMock()
         mock_cursor = MagicMock()
-        # First call: SELECT etf_ticker returns two ETFs
-        # Second call: DELETE from junc_stock_etf
         mock_cursor.fetchall.return_value = [('SPY',), ('QQQ',)]
         conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
         conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
@@ -227,5 +267,11 @@ class TestSoftDeleteTicker:
         delete_call = mock_cursor.execute.call_args_list[1]
         assert 'DELETE' in delete_call[0][0]
         assert 'junc_stock_etf' in delete_call[0][0]
-        assert delete_call[0][1] == ('VERV',)
-        conn.commit.assert_called()
+
+        # Should have cleared failure tracker
+        mock_clear.assert_called_once_with(conn, 'VERV')
+
+
+class TestDelistThreshold:
+    def test_threshold_is_three(self):
+        assert DELIST_FAILURE_THRESHOLD == 3

@@ -65,8 +65,9 @@ def _yf_download_with_retry(batch: List[str], start: str,
     Single-ticker empty results are assumed delisted and skip straight to fallback.
     """
     result: Dict[str, pd.DataFrame] = {}
-    # Only retry multi-ticker batches; single-ticker empty = probably delisted
-    max_retries = config.RATE_LIMIT_MAX_RETRIES if len(batch) > 1 else 0
+    # Only retry large batches where blanket empty likely means rate limiting.
+    # Small batches (<=10) returning empty are almost certainly all delisted.
+    max_retries = config.RATE_LIMIT_MAX_RETRIES if len(batch) > 10 else 0
 
     for attempt in range(max_retries + 1):
         try:

@@ -77,25 +77,24 @@ class TestBatchDownload:
 
     @patch('rs_pipeline.fetch.time.sleep')
     @patch('rs_pipeline.fetch.yf.download')
-    def test_retry_on_rate_limit_multi_ticker(self, mock_dl, mock_sleep):
-        """Empty result for multi-ticker batch triggers retry with backoff."""
+    def test_retry_on_rate_limit_large_batch(self, mock_dl, mock_sleep):
+        """Empty result for large batch (>10) triggers retry with backoff."""
         from rs_pipeline.fetch import _yf_download_with_retry
-        # Return empty 4 times (initial + 3 retries)
+        tickers = [f'T{i}' for i in range(15)]
         mock_dl.return_value = pd.DataFrame()
-        result = _yf_download_with_retry(['AAPL', 'MSFT'], '2024-01-02', '2024-01-08')
+        result = _yf_download_with_retry(tickers, '2024-01-02', '2024-01-08')
         assert result == {}
         # 3 retries + 1 initial = 4 calls total
         assert mock_dl.call_count == 4
-        # 3 sleeps with exponential backoff
         assert mock_sleep.call_count == 3
 
     @patch('rs_pipeline.fetch.time.sleep')
     @patch('rs_pipeline.fetch.yf.download')
-    def test_no_retry_single_ticker(self, mock_dl, mock_sleep):
-        """Single-ticker empty result skips retry (likely delisted, not rate limited)."""
+    def test_no_retry_small_batch(self, mock_dl, mock_sleep):
+        """Small batch (<=10) empty result skips retry (likely all delisted)."""
         from rs_pipeline.fetch import _yf_download_with_retry
         mock_dl.return_value = pd.DataFrame()
-        result = _yf_download_with_retry(['FAKE'], '2024-01-02', '2024-01-08')
+        result = _yf_download_with_retry(['FAKE', 'GONE', 'DEAD'], '2024-01-02', '2024-01-08')
         assert result == {}
         assert mock_dl.call_count == 1
         mock_sleep.assert_not_called()

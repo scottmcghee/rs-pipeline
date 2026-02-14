@@ -1,21 +1,24 @@
 """Step 1: Fetch OHLC price data — incremental, batch yfinance."""
 
 import logging
-from datetime import timedelta
-from typing import List, Optional
+from datetime import date, timedelta
+from typing import List, Optional, Set
 
 import pandas as pd
 
 from rs_pipeline import config
 from rs_pipeline.db import (
+    DELIST_FAILURE_THRESHOLD,
     ConnectionPool,
     bulk_upsert_ohlc,
+    clear_fetch_failure,
     ensure_delisted_table,
     fetch_all_etfs_from_db,
     fetch_all_holdings,
     fetch_delisted_tickers,
     fetch_holdings_for_etf,
     fetch_latest_ohlc_dates,
+    record_fetch_failure,
     soft_delete_ticker,
 )
 from rs_pipeline.fetch import (
@@ -28,14 +31,53 @@ from rs_pipeline.db import bulk_upsert_dim_stock
 logger = logging.getLogger(__name__)
 
 
+def _handle_fetch_results(conn, successfully_fetched: Set[str],
+                          still_missing: List[str], delisted: set,
+                          today: str) -> None:
+    """Track failures for missing tickers, clear failures for successes.
+
+    Tickers only get soft-deleted after failing on DELIST_FAILURE_THRESHOLD
+    distinct dates.
+    """
+    # Clear failure records for tickers that succeeded this run
+    for ticker in successfully_fetched:
+        clear_fetch_failure(conn, ticker)
+
+    if not still_missing:
+        return
+
+    # Filter out already-delisted tickers
+    new_failures = [t for t in still_missing if t not in delisted]
+    if not new_failures:
+        return
+
+    logger.info("Recording fetch failures for %d tickers", len(new_failures))
+    promoted = []
+    for ticker in new_failures:
+        count = record_fetch_failure(conn, ticker, today)
+        if count >= DELIST_FAILURE_THRESHOLD:
+            promoted.append(ticker)
+
+    if promoted:
+        logger.warning("Soft-deleting %d tickers (failed %d+ consecutive days): %s",
+                       len(promoted), DELIST_FAILURE_THRESHOLD,
+                       ', '.join(promoted[:20]))
+        for ticker in promoted:
+            soft_delete_ticker(conn, ticker)
+    else:
+        logger.info("No tickers hit delist threshold yet (%d failures needed)",
+                    DELIST_FAILURE_THRESHOLD)
+
+
 def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None:
     logger.info("=== Step 1: fetch-prices ===")
 
     start_date = args.start_date or config.FULL_HISTORY_START
     end_date = args.end_date
+    today = date.today().isoformat()
 
     with pool.connection() as conn:
-        # Ensure delisted_tickers table exists
+        # Ensure tables exist
         ensure_delisted_table(conn)
 
         # Load known-delisted tickers to skip
@@ -95,12 +137,14 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
                 by_start.setdefault(s, []).append(ticker)
 
             total_upserted = 0
+            all_successfully_fetched: set[str] = set()
             all_still_missing: list[str] = []
             for fetch_start, tickers in by_start.items():
                 logger.info("Downloading %d stocks from %s to %s",
                              len(tickers), fetch_start, end_date)
                 ohlc_data, still_missing = batch_download_ohlc(
                     tickers, fetch_start, end_date)
+                all_successfully_fetched.update(ohlc_data.keys())
                 all_still_missing.extend(still_missing)
                 for ticker, df in ohlc_data.items():
                     records = [
@@ -115,17 +159,9 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
 
             logger.info("Stock OHLC: %d rows upserted", total_upserted)
 
-            # --- Handle delisted tickers ---
-            if all_still_missing:
-                # Filter out tickers already known as delisted
-                new_delistings = [t for t in all_still_missing
-                                  if t not in delisted]
-                if new_delistings:
-                    logger.warning("Delisted %d tickers: %s",
-                                   len(new_delistings),
-                                   ', '.join(new_delistings[:20]))
-                    for ticker in new_delistings:
-                        soft_delete_ticker(conn, ticker)
+            # Track failures / promote to delisted after threshold
+            _handle_fetch_results(conn, all_successfully_fetched,
+                                  all_still_missing, delisted, today)
         else:
             logger.info("All stock OHLC up to date")
 
