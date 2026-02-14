@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, timedelta
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
 
@@ -25,29 +25,17 @@ from rs_pipeline.fetch import (
     batch_download_ohlc,
     fetch_missing_stock_info,
     onboard_new_etf,
+    verify_tickers_individually,
 )
 from rs_pipeline.db import bulk_upsert_dim_stock
 
 logger = logging.getLogger(__name__)
 
 
-def _handle_fetch_results(conn, successfully_fetched: Set[str],
-                          still_missing: List[str], delisted: set,
-                          today: str) -> None:
-    """Track failures for missing tickers, clear failures for successes.
-
-    Tickers only get soft-deleted after failing on DELIST_FAILURE_THRESHOLD
-    distinct dates.
-    """
-    # Clear failure records for tickers that succeeded this run
-    for ticker in successfully_fetched:
-        clear_fetch_failure(conn, ticker)
-
-    if not still_missing:
-        return
-
-    # Filter out already-delisted tickers
-    new_failures = [t for t in still_missing if t not in delisted]
+def _record_failures(conn, truly_missing: List[str], delisted: set,
+                     today: str) -> None:
+    """Record failures for truly missing tickers, promote past threshold."""
+    new_failures = [t for t in truly_missing if t not in delisted]
     if not new_failures:
         return
 
@@ -76,25 +64,20 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
     end_date = args.end_date
     today = date.today().isoformat()
 
+    # --- Phase 1: Read DB state + batch download (conn needed) ---
     with pool.connection() as conn:
-        # Ensure tables exist
         ensure_delisted_table(conn)
 
-        # Load known-delisted tickers to skip
         delisted = fetch_delisted_tickers(conn)
         if delisted:
             logger.info("Skipping %d known delisted tickers", len(delisted))
 
-        # Determine which ETFs to process
         if indices:
-            # Check for unknown ETFs and onboard them
             known_holdings = fetch_all_holdings(conn)
             for etf in indices:
                 if etf not in known_holdings:
                     logger.info("ETF %s not in DB — onboarding", etf)
                     onboard_new_etf(conn, etf)
-
-            # Collect tickers for requested ETFs
             all_holdings = {}
             for etf in indices:
                 tickers = fetch_holdings_for_etf(conn, etf)
@@ -107,11 +90,9 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
             logger.warning("No ETF holdings found. Nothing to fetch.")
             return
 
-        # Deduplicate stock tickers across all ETFs, excluding delisted
         all_stock_tickers = sorted(
             {t for ts in all_holdings.values() for t in ts} - delisted
         )
-        # Also collect the ETF tickers themselves (for fact_index_ohlc)
         all_etf_tickers = sorted(all_holdings.keys())
 
         logger.info("Total unique stocks: %d across %d ETFs",
@@ -126,19 +107,19 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
             if last is not None:
                 next_day = last + timedelta(days=1)
                 if str(next_day) > end_date:
-                    continue  # already up to date
+                    continue
                 fetch_start = str(next_day)
             stocks_to_fetch[ticker] = fetch_start
 
+        all_successfully_fetched: set[str] = set()
+        all_still_missing: list[str] = []
+        total_upserted = 0
+
         if stocks_to_fetch:
-            # Group by start_date to minimise yf.download calls
             by_start: dict[str, list[str]] = {}
             for ticker, s in stocks_to_fetch.items():
                 by_start.setdefault(s, []).append(ticker)
 
-            total_upserted = 0
-            all_successfully_fetched: set[str] = set()
-            all_still_missing: list[str] = []
             for fetch_start, tickers in by_start.items():
                 logger.info("Downloading %d stocks from %s to %s",
                              len(tickers), fetch_start, end_date)
@@ -158,10 +139,6 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
                         conn, 'fact_commons_ohlc', records)
 
             logger.info("Stock OHLC: %d rows upserted", total_upserted)
-
-            # Track failures / promote to delisted after threshold
-            _handle_fetch_results(conn, all_successfully_fetched,
-                                  all_still_missing, delisted, today)
         else:
             logger.info("All stock OHLC up to date")
 
@@ -203,7 +180,45 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
         else:
             logger.info("All ETF OHLC up to date")
 
-        # --- Update dim_stock for new tickers ---
+    # --- Phase 2: Individual verification (no DB needed, may take minutes) ---
+    candidates = [t for t in all_still_missing if t not in delisted]
+    recovered: Dict[str, pd.DataFrame] = {}
+    truly_missing: List[str] = []
+
+    if candidates:
+        recovered, truly_missing = verify_tickers_individually(
+            candidates, start_date, end_date)
+
+    # --- Phase 3: Fresh connection for post-verification DB work ---
+    with pool.connection() as conn:
+        # Clear failures for successfully fetched tickers
+        for ticker in all_successfully_fetched:
+            clear_fetch_failure(conn, ticker)
+
+        # Clear failures for recovered tickers
+        for ticker in recovered:
+            clear_fetch_failure(conn, ticker)
+
+        # Upsert recovered OHLC data
+        if recovered:
+            for ticker, df in recovered.items():
+                records = [
+                    (idx.date(), ticker,
+                     float(row['open']), float(row['high']),
+                     float(row['low']), float(row['close']),
+                     int(row['volume']))
+                    for idx, row in df.iterrows()
+                ]
+                total_upserted += bulk_upsert_ohlc(
+                    conn, 'fact_commons_ohlc', records)
+            logger.info("Recovered %d tickers via individual verification "
+                        "(%d additional rows)", len(recovered),
+                        sum(len(df) for df in recovered.values()))
+
+        # Record failures for truly missing tickers
+        _record_failures(conn, truly_missing, delisted, today)
+
+        # Update dim_stock for new tickers
         stock_info = fetch_missing_stock_info(conn, all_stock_tickers)
         if stock_info:
             bulk_upsert_dim_stock(conn, stock_info)

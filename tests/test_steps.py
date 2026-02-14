@@ -25,6 +25,8 @@ def _make_args(**kwargs):
 class TestFetchPricesIncremental:
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_dim_stock')
     @patch('rs_pipeline.steps.fetch_prices.fetch_missing_stock_info', return_value=[])
+    @patch('rs_pipeline.steps.fetch_prices.clear_fetch_failure')
+    @patch('rs_pipeline.steps.fetch_prices.verify_tickers_individually', return_value=({}, []))
     @patch('rs_pipeline.steps.fetch_prices.batch_download_ohlc', return_value=({}, []))
     @patch('rs_pipeline.steps.fetch_prices.fetch_latest_ohlc_dates')
     @patch('rs_pipeline.steps.fetch_prices.fetch_all_holdings',
@@ -32,7 +34,8 @@ class TestFetchPricesIncremental:
     @patch('rs_pipeline.steps.fetch_prices.fetch_delisted_tickers', return_value=set())
     @patch('rs_pipeline.steps.fetch_prices.ensure_delisted_table')
     def test_skips_up_to_date(self, mock_ensure, mock_delisted, mock_hold,
-                               mock_latest, mock_dl, mock_info, mock_dim):
+                               mock_latest, mock_dl, mock_verify, mock_clear,
+                               mock_info, mock_dim):
         """Tickers already up to date should not be re-downloaded."""
         mock_latest.return_value = {
             'AAPL': date(2024, 1, 31),
@@ -52,6 +55,8 @@ class TestFetchPricesIncremental:
 
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_dim_stock')
     @patch('rs_pipeline.steps.fetch_prices.fetch_missing_stock_info', return_value=[])
+    @patch('rs_pipeline.steps.fetch_prices.clear_fetch_failure')
+    @patch('rs_pipeline.steps.fetch_prices.verify_tickers_individually', return_value=({}, []))
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_ohlc', return_value=5)
     @patch('rs_pipeline.steps.fetch_prices.batch_download_ohlc')
     @patch('rs_pipeline.steps.fetch_prices.fetch_latest_ohlc_dates')
@@ -61,7 +66,8 @@ class TestFetchPricesIncremental:
     @patch('rs_pipeline.steps.fetch_prices.ensure_delisted_table')
     def test_fetches_from_last_date(self, mock_ensure, mock_delisted, mock_hold,
                                      mock_latest, mock_dl, mock_upsert,
-                                     mock_info, mock_dim):
+                                     mock_verify, mock_clear, mock_info,
+                                     mock_dim):
         """Should fetch from day after last stored date."""
         mock_latest.return_value = {'AAPL': date(2024, 1, 15)}
         dates = pd.bdate_range('2024-01-16', periods=5)
@@ -216,6 +222,8 @@ class TestRunAllOrder:
 class TestNewEtfOnboarding:
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_dim_stock')
     @patch('rs_pipeline.steps.fetch_prices.fetch_missing_stock_info', return_value=[])
+    @patch('rs_pipeline.steps.fetch_prices.clear_fetch_failure')
+    @patch('rs_pipeline.steps.fetch_prices.verify_tickers_individually', return_value=({}, []))
     @patch('rs_pipeline.steps.fetch_prices.batch_download_ohlc', return_value=({}, []))
     @patch('rs_pipeline.steps.fetch_prices.fetch_latest_ohlc_dates', return_value={})
     @patch('rs_pipeline.steps.fetch_prices.onboard_new_etf', return_value=['A', 'B'])
@@ -226,8 +234,8 @@ class TestNewEtfOnboarding:
     @patch('rs_pipeline.steps.fetch_prices.ensure_delisted_table')
     def test_unknown_etf_triggers_onboard(self, mock_ensure, mock_delisted,
                                            mock_all, mock_for, mock_onboard,
-                                           mock_latest, mock_dl, mock_info,
-                                           mock_dim):
+                                           mock_latest, mock_dl, mock_verify,
+                                           mock_clear, mock_info, mock_dim):
         pool = MagicMock()
         mock_conn = MagicMock()
         pool.connection.return_value.__enter__ = MagicMock(return_value=mock_conn)

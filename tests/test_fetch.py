@@ -13,6 +13,7 @@ from rs_pipeline.fetch import (
     fetch_etf_holdings,
     fetch_missing_stock_info,
     onboard_new_etf,
+    verify_tickers_individually,
 )
 
 
@@ -208,3 +209,70 @@ class TestOnboardNewEtf:
         assert 'B' in tickers and 'C' in tickers and 'A' not in tickers
         # Junction for all 3
         assert mock_junc.call_args[0][1] == [('A', 'ARKK'), ('B', 'ARKK'), ('C', 'ARKK')]
+
+
+class TestVerifyTickersIndividually:
+    @patch('rs_pipeline.fetch.yf.Ticker')
+    def test_recovers_valid_tickers(self, mock_ticker_cls):
+        """Valid tickers should be recovered via yf.Ticker().history()."""
+        dates = pd.bdate_range('2024-01-02', periods=3)
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = pd.DataFrame({
+            'Open': [1]*3, 'High': [2]*3, 'Low': [0.5]*3,
+            'Close': [1.5]*3, 'Volume': [100]*3,
+        }, index=dates)
+        mock_ticker_cls.return_value = mock_ticker
+
+        recovered, missing = verify_tickers_individually(
+            ['AAPL'], '2024-01-02', '2024-01-05')
+        assert 'AAPL' in recovered
+        assert missing == []
+
+    @patch('rs_pipeline.fetch.yf.Ticker')
+    def test_truly_missing_tickers(self, mock_ticker_cls):
+        """Tickers returning empty history should be truly missing."""
+        mock_ticker = MagicMock()
+        mock_ticker.history.return_value = pd.DataFrame()
+        mock_ticker_cls.return_value = mock_ticker
+
+        recovered, missing = verify_tickers_individually(
+            ['FAKE'], '2024-01-02', '2024-01-05')
+        assert recovered == {}
+        assert missing == ['FAKE']
+
+    @patch('rs_pipeline.fetch.yf.Ticker')
+    def test_mixed_results(self, mock_ticker_cls):
+        """Mix of valid and invalid tickers."""
+        dates = pd.bdate_range('2024-01-02', periods=3)
+
+        def side_effect(ticker):
+            mock = MagicMock()
+            if ticker == 'GOOD':
+                mock.history.return_value = pd.DataFrame({
+                    'Open': [1]*3, 'High': [2]*3, 'Low': [0.5]*3,
+                    'Close': [1.5]*3, 'Volume': [100]*3,
+                }, index=dates)
+            else:
+                mock.history.return_value = pd.DataFrame()
+            return mock
+
+        mock_ticker_cls.side_effect = side_effect
+        recovered, missing = verify_tickers_individually(
+            ['GOOD', 'BAD'], '2024-01-02', '2024-01-05')
+        assert 'GOOD' in recovered
+        assert missing == ['BAD']
+
+    def test_empty_input(self):
+        recovered, missing = verify_tickers_individually(
+            [], '2024-01-02', '2024-01-05')
+        assert recovered == {}
+        assert missing == []
+
+    @patch('rs_pipeline.fetch.yf.Ticker')
+    def test_exception_counts_as_missing(self, mock_ticker_cls):
+        """Exceptions during verification should mark ticker as missing."""
+        mock_ticker_cls.side_effect = Exception("network error")
+        recovered, missing = verify_tickers_individually(
+            ['ERR'], '2024-01-02', '2024-01-05')
+        assert recovered == {}
+        assert missing == ['ERR']

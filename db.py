@@ -631,6 +631,28 @@ def fetch_delisted_tickers(conn) -> set:
         return {row[0] for row in cur.fetchall()}
 
 
+def drop_etf(conn, etf_ticker: str) -> None:
+    """Fully remove an ETF and all its data from the database."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM fact_stock_metrics WHERE etf_ticker = %s",
+                    (etf_ticker,))
+        metrics_del = cur.rowcount
+        cur.execute("DELETE FROM fact_etf_metrics WHERE etf_ticker = %s",
+                    (etf_ticker,))
+        etf_metrics_del = cur.rowcount
+        cur.execute("DELETE FROM fact_index_ohlc WHERE ticker = %s",
+                    (etf_ticker,))
+        ohlc_del = cur.rowcount
+        cur.execute("DELETE FROM junc_stock_etf WHERE etf_ticker = %s",
+                    (etf_ticker,))
+        junc_del = cur.rowcount
+        cur.execute("DELETE FROM dim_etf WHERE etf_ticker = %s",
+                    (etf_ticker,))
+    conn.commit()
+    logger.info("Dropped ETF %s: %d metrics, %d etf_metrics, %d OHLC, %d junctions removed",
+                etf_ticker, metrics_del, etf_metrics_del, ohlc_del, junc_del)
+
+
 def soft_delete_ticker(conn, ticker: str) -> None:
     """Soft-delete a ticker: log to delisted_tickers and remove junction rows.
 

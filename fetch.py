@@ -218,6 +218,46 @@ def _normalise_twelve_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
 
 
 # ---------------------------------------------------------------------------
+# Individual ticker verification (post-batch fallback)
+# ---------------------------------------------------------------------------
+
+def verify_tickers_individually(tickers: List[str], start: str,
+                                end: str) -> Tuple[Dict[str, pd.DataFrame], List[str]]:
+    """Verify supposedly-missing tickers one-by-one using yf.Ticker().history().
+
+    Batch yf.download() can false-positive on valid tickers due to rate limits
+    or batch-level errors. This rechecks each ticker individually as a final
+    gate before recording a failure.
+
+    Returns (recovered dict[ticker → DataFrame], truly_missing list).
+    """
+    if not tickers:
+        return {}, []
+
+    logger.info("Verifying %d tickers individually via yf.Ticker().history()",
+                len(tickers))
+    recovered: Dict[str, pd.DataFrame] = {}
+    truly_missing: List[str] = []
+
+    for ticker in tickers:
+        try:
+            t = yf.Ticker(ticker)
+            df = t.history(start=start, end=end)
+            if df is not None and not df.empty:
+                normed = _normalise_ohlc(df)
+                if normed is not None and not normed.empty:
+                    recovered[ticker] = normed
+                    continue
+        except Exception as e:
+            logger.debug("Individual verify failed for %s: %s", ticker, e)
+        truly_missing.append(ticker)
+
+    logger.info("Individual verification: %d recovered, %d truly missing",
+                len(recovered), len(truly_missing))
+    return recovered, truly_missing
+
+
+# ---------------------------------------------------------------------------
 # ETF holdings discovery
 # ---------------------------------------------------------------------------
 

@@ -13,6 +13,7 @@ from rs_pipeline.db import (
     bulk_upsert_ohlc,
     bulk_upsert_stock_metrics,
     clear_fetch_failure,
+    drop_etf,
     ensure_delisted_table,
     fetch_delisted_tickers,
     insert_delisted_ticker,
@@ -270,6 +271,26 @@ class TestSoftDeleteTicker:
 
         # Should have cleared failure tracker
         mock_clear.assert_called_once_with(conn, 'VERV')
+
+
+class TestDropEtf:
+    def test_drops_all_etf_data(self):
+        conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.rowcount = 10
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        drop_etf(conn, 'GXG')
+        calls = mock_cursor.execute.call_args_list
+        sql_all = ' '.join(c[0][0] for c in calls)
+        assert 'fact_stock_metrics' in sql_all
+        assert 'fact_etf_metrics' in sql_all
+        assert 'fact_index_ohlc' in sql_all
+        assert 'junc_stock_etf' in sql_all
+        assert 'dim_etf' in sql_all
+        # All should be DELETEs
+        assert sql_all.count('DELETE') == 5
+        conn.commit.assert_called_once()
 
 
 class TestDelistThreshold:
