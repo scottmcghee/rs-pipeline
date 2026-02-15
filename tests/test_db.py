@@ -21,6 +21,8 @@ from rs_pipeline.db import (
     rank_overall_by_sql,
     record_fetch_failure,
     soft_delete_ticker,
+    update_sector_industry_mappings,
+    upsert_dim_etf,
     ConnectionPool,
 )
 
@@ -290,6 +292,36 @@ class TestDropEtf:
         assert 'dim_etf' in sql_all
         # All should be DELETEs
         assert sql_all.count('DELETE') == 5
+        conn.commit.assert_called_once()
+
+
+class TestUpsertDimEtf:
+    def test_updates_name_on_conflict(self):
+        conn = MagicMock()
+        mock_cursor = MagicMock()
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        upsert_dim_etf(conn, 'SPY', 'SPDR S&P 500 ETF Trust')
+        sql_used = mock_cursor.execute.call_args[0][0]
+        assert 'COALESCE' in sql_used
+        assert 'DO UPDATE' in sql_used
+        args = mock_cursor.execute.call_args[0][1]
+        assert args == ('SPY', 'SPDR S&P 500 ETF Trust')
+
+
+class TestUpdateSectorIndustryMappings:
+    def test_executes_sector_and_industry_inserts(self):
+        conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.rowcount = 5
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        result = update_sector_industry_mappings(conn)
+        assert result == 10  # 5 sector + 5 industry
+        calls = mock_cursor.execute.call_args_list
+        assert len(calls) == 2
+        assert 'dim_sector' in calls[0][0][0]
+        assert 'dim_industry' in calls[1][0][0]
         conn.commit.assert_called_once()
 
 

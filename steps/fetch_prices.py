@@ -27,7 +27,7 @@ from rs_pipeline.fetch import (
     onboard_new_etf,
     verify_tickers_individually,
 )
-from rs_pipeline.db import bulk_upsert_dim_stock
+from rs_pipeline.db import bulk_upsert_dim_stock, update_sector_industry_mappings
 
 logger = logging.getLogger(__name__)
 
@@ -223,5 +223,8 @@ def run(pool: ConnectionPool, args, indices: Optional[List[str]] = None) -> None
         if stock_info:
             bulk_upsert_dim_stock(conn, stock_info)
             logger.info("Updated dim_stock for %d new tickers", len(stock_info))
+
+        # Map stocks to sector/industry ETFs based on dim_stock metadata
+        update_sector_industry_mappings(conn)
 
     logger.info("=== Step 1 complete ===")

@@ -516,7 +516,8 @@ def upsert_dim_etf(conn, etf_ticker: str, etf_name: str = None) -> None:
         cur.execute("""
             INSERT INTO dim_etf (etf_ticker, etf_name)
             VALUES (%s, %s)
-            ON CONFLICT (etf_ticker) DO NOTHING
+            ON CONFLICT (etf_ticker) DO UPDATE SET
+                etf_name = COALESCE(EXCLUDED.etf_name, dim_etf.etf_name)
         """, (etf_ticker, etf_name))
     conn.commit()
 
@@ -558,6 +559,47 @@ def bulk_upsert_junc_stock_etf(conn, records: List[tuple]) -> None:
             ON CONFLICT (ticker, etf_ticker) DO NOTHING
         """, records, page_size=500)
     conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Sector/industry ETF mapping
+# ---------------------------------------------------------------------------
+
+def update_sector_industry_mappings(conn) -> int:
+    """Map stocks to sector/industry ETFs based on dim_stock + dim_sector/dim_industry.
+
+    Inserts into junc_stock_etf for any stock whose sector or industry matches
+    a known ETF. Returns number of new mappings created.
+    """
+    with conn.cursor() as cur:
+        # Sector mappings
+        cur.execute("""
+            INSERT INTO junc_stock_etf (ticker, etf_ticker)
+            SELECT ds.ticker, sec.etf_ticker
+            FROM dim_stock ds
+            JOIN dim_sector sec ON ds.sector = sec.name
+            WHERE ds.sector IS NOT NULL
+            ON CONFLICT (ticker, etf_ticker) DO NOTHING
+        """)
+        sector_count = cur.rowcount
+
+        # Industry mappings
+        cur.execute("""
+            INSERT INTO junc_stock_etf (ticker, etf_ticker)
+            SELECT ds.ticker, ind.etf_ticker
+            FROM dim_stock ds
+            JOIN dim_industry ind ON ds.industry = ind.name
+            WHERE ds.industry IS NOT NULL
+            ON CONFLICT (ticker, etf_ticker) DO NOTHING
+        """)
+        industry_count = cur.rowcount
+
+    conn.commit()
+    total = sector_count + industry_count
+    if total:
+        logger.info("Sector/industry mappings: %d sector + %d industry = %d new",
+                     sector_count, industry_count, total)
+    return total
 
 
 # ---------------------------------------------------------------------------

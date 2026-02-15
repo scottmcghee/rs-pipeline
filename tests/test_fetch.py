@@ -192,16 +192,19 @@ class TestFetchMissingStockInfo:
 
 
 class TestOnboardNewEtf:
+    @patch('rs_pipeline.fetch.yf.Ticker')
     @patch('rs_pipeline.fetch.fetch_etf_holdings', return_value=['A', 'B', 'C'])
     @patch('rs_pipeline.fetch.fetch_existing_stocks', return_value={'A'})
     @patch('rs_pipeline.fetch.bulk_upsert_dim_stock')
     @patch('rs_pipeline.fetch.bulk_upsert_junc_stock_etf')
     @patch('rs_pipeline.fetch.upsert_dim_etf')
-    def test_onboards(self, mock_etf, mock_junc, mock_stock, mock_exist, mock_hold):
+    def test_onboards(self, mock_etf, mock_junc, mock_stock, mock_exist,
+                      mock_hold, mock_yf_ticker):
+        mock_yf_ticker.return_value.info = {'longName': 'ARK Innovation ETF'}
         conn = MagicMock()
         result = onboard_new_etf(conn, 'ARKK')
         assert result == ['A', 'B', 'C']
-        mock_etf.assert_called_once_with(conn, 'ARKK')
+        mock_etf.assert_called_once_with(conn, 'ARKK', 'ARK Innovation ETF')
         # Only B and C are new
         mock_stock.assert_called_once()
         new_stocks = mock_stock.call_args[0][1]

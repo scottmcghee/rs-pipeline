@@ -23,6 +23,7 @@ def _make_args(**kwargs):
 
 
 class TestFetchPricesIncremental:
+    @patch('rs_pipeline.steps.fetch_prices.update_sector_industry_mappings', return_value=0)
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_dim_stock')
     @patch('rs_pipeline.steps.fetch_prices.fetch_missing_stock_info', return_value=[])
     @patch('rs_pipeline.steps.fetch_prices.clear_fetch_failure')
@@ -35,7 +36,7 @@ class TestFetchPricesIncremental:
     @patch('rs_pipeline.steps.fetch_prices.ensure_delisted_table')
     def test_skips_up_to_date(self, mock_ensure, mock_delisted, mock_hold,
                                mock_latest, mock_dl, mock_verify, mock_clear,
-                               mock_info, mock_dim):
+                               mock_info, mock_dim, mock_sec):
         """Tickers already up to date should not be re-downloaded."""
         mock_latest.return_value = {
             'AAPL': date(2024, 1, 31),
@@ -53,6 +54,7 @@ class TestFetchPricesIncremental:
         # batch_download_ohlc is called only if there are tickers to fetch
 
 
+    @patch('rs_pipeline.steps.fetch_prices.update_sector_industry_mappings', return_value=0)
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_dim_stock')
     @patch('rs_pipeline.steps.fetch_prices.fetch_missing_stock_info', return_value=[])
     @patch('rs_pipeline.steps.fetch_prices.clear_fetch_failure')
@@ -67,7 +69,7 @@ class TestFetchPricesIncremental:
     def test_fetches_from_last_date(self, mock_ensure, mock_delisted, mock_hold,
                                      mock_latest, mock_dl, mock_upsert,
                                      mock_verify, mock_clear, mock_info,
-                                     mock_dim):
+                                     mock_dim, mock_sec):
         """Should fetch from day after last stored date."""
         mock_latest.return_value = {'AAPL': date(2024, 1, 15)}
         dates = pd.bdate_range('2024-01-16', periods=5)
@@ -220,6 +222,7 @@ class TestRunAllOrder:
 
 
 class TestNewEtfOnboarding:
+    @patch('rs_pipeline.steps.fetch_prices.update_sector_industry_mappings', return_value=0)
     @patch('rs_pipeline.steps.fetch_prices.bulk_upsert_dim_stock')
     @patch('rs_pipeline.steps.fetch_prices.fetch_missing_stock_info', return_value=[])
     @patch('rs_pipeline.steps.fetch_prices.clear_fetch_failure')
@@ -235,7 +238,8 @@ class TestNewEtfOnboarding:
     def test_unknown_etf_triggers_onboard(self, mock_ensure, mock_delisted,
                                            mock_all, mock_for, mock_onboard,
                                            mock_latest, mock_dl, mock_verify,
-                                           mock_clear, mock_info, mock_dim):
+                                           mock_clear, mock_info, mock_dim,
+                                           mock_sec):
         pool = MagicMock()
         mock_conn = MagicMock()
         pool.connection.return_value.__enter__ = MagicMock(return_value=mock_conn)

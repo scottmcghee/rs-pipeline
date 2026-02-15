@@ -351,8 +351,14 @@ def onboard_new_etf(conn, etf_ticker: str,
 
     logger.info("Onboarding %s with %d holdings", etf_ticker, len(holdings))
 
-    # Ensure ETF in dim_etf
-    upsert_dim_etf(conn, etf_ticker)
+    # Ensure ETF in dim_etf (with name from yfinance)
+    etf_name = None
+    try:
+        info = yf.Ticker(etf_ticker).info
+        etf_name = info.get('longName') or info.get('shortName')
+    except Exception:
+        pass
+    upsert_dim_etf(conn, etf_ticker, etf_name)
 
     # Ensure all stocks in dim_stock (stub rows; stock_info fetched separately)
     existing = fetch_existing_stocks(conn)
