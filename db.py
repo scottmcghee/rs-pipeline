@@ -419,25 +419,33 @@ def rank_index_by_sql(conn, etf_ticker: str, start: str, end: str) -> int:
 
 
 def rank_overall_by_sql(conn, start: str, end: str) -> int:
-    """Update rs_rank_overall across all stocks for a date range."""
+    """Update rs_rank_overall across all stocks for a date range.
+
+    Averages relative_strength across ETFs per (date, ticker) first,
+    then ranks so every row for the same ticker gets the same rank.
+    """
     query = """
         UPDATE fact_stock_metrics AS m
-        SET rs_rank_overall = sub.pct_rank
+        SET rs_rank_overall = ranked.pct_rank
         FROM (
-            SELECT date, ticker, etf_ticker,
+            SELECT date, ticker,
                    PERCENT_RANK() OVER (
                        PARTITION BY date
-                       ORDER BY relative_strength
+                       ORDER BY avg_rs
                    ) AS pct_rank
-            FROM fact_stock_metrics
-            WHERE date BETWEEN %s AND %s
-        ) sub
-        WHERE m.date = sub.date
-          AND m.ticker = sub.ticker
-          AND m.etf_ticker = sub.etf_ticker
+            FROM (
+                SELECT date, ticker, AVG(relative_strength) AS avg_rs
+                FROM fact_stock_metrics
+                WHERE date BETWEEN %s AND %s
+                GROUP BY date, ticker
+            ) per_ticker
+        ) ranked
+        WHERE m.date = ranked.date
+          AND m.ticker = ranked.ticker
+          AND m.date BETWEEN %s AND %s
     """
     with conn.cursor() as cur:
-        cur.execute(query, [start, end])
+        cur.execute(query, [start, end, start, end])
         count = cur.rowcount
     conn.commit()
     return count

@@ -121,6 +121,9 @@ class TestRankBySQL:
         sql_used = mock_cursor.execute.call_args[0][0]
         assert 'PERCENT_RANK()' in sql_used
         assert 'rs_rank_overall' in sql_used
+        # Ranks by avg RS per ticker, not per (ticker, etf_ticker)
+        assert 'AVG(relative_strength)' in sql_used
+        assert 'GROUP BY date, ticker' in sql_used
 
 
 class TestMetricsDfToTuples:
