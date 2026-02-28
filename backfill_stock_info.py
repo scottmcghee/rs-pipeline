@@ -1,4 +1,4 @@
-"""One-off script to backfill missing company_name, sector, industry in dim_stock."""
+"""One-off script to backfill missing company_name, sector, industry, exchange in dim_stock."""
 
 import logging
 import time
@@ -14,13 +14,34 @@ logger = logging.getLogger(__name__)
 BATCH_COMMIT_SIZE = 50
 
 
+def _update_ticker(cur, ticker: str, info: dict) -> bool:
+    """Update dim_stock with info from yfinance. Returns True if updated."""
+    name = info.get('longName')
+    sector = info.get('sector')
+    industry = info.get('industry')
+    exchange = info.get('exchange')
+
+    if name or sector or industry or exchange:
+        cur.execute("""
+            UPDATE dim_stock SET
+                company_name = COALESCE(%s, company_name),
+                sector = COALESCE(%s, sector),
+                industry = COALESCE(%s, industry),
+                exchange = COALESCE(%s, exchange)
+            WHERE ticker = %s
+        """, (name, sector, industry, exchange, ticker))
+        return True
+    return False
+
+
 def main():
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
 
     cur.execute("""
         SELECT ticker FROM dim_stock
-        WHERE company_name IS NULL AND sector IS NULL AND industry IS NULL
+        WHERE company_name IS NULL OR sector IS NULL
+           OR industry IS NULL OR exchange IS NULL
         ORDER BY ticker
     """)
     tickers = [r[0] for r in cur.fetchall()]
@@ -31,18 +52,7 @@ def main():
     for i, ticker in enumerate(tickers):
         try:
             info = yf.Ticker(ticker).info
-            name = info.get('longName')
-            sector = info.get('sector')
-            industry = info.get('industry')
-
-            if name or sector or industry:
-                cur.execute("""
-                    UPDATE dim_stock SET
-                        company_name = COALESCE(%s, company_name),
-                        sector = COALESCE(%s, sector),
-                        industry = COALESCE(%s, industry)
-                    WHERE ticker = %s
-                """, (name, sector, industry, ticker))
+            if _update_ticker(cur, ticker, info):
                 updated += 1
             else:
                 skipped += 1
@@ -51,20 +61,9 @@ def main():
             if '429' in err or 'rate' in err:
                 logger.warning("Rate limited at %s, sleeping 60s", ticker)
                 time.sleep(60)
-                # Retry this ticker
                 try:
                     info = yf.Ticker(ticker).info
-                    name = info.get('longName')
-                    sector = info.get('sector')
-                    industry = info.get('industry')
-                    if name or sector or industry:
-                        cur.execute("""
-                            UPDATE dim_stock SET
-                                company_name = COALESCE(%s, company_name),
-                                sector = COALESCE(%s, sector),
-                                industry = COALESCE(%s, industry)
-                            WHERE ticker = %s
-                        """, (name, sector, industry, ticker))
+                    if _update_ticker(cur, ticker, info):
                         updated += 1
                     else:
                         skipped += 1

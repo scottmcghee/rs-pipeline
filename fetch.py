@@ -291,11 +291,11 @@ def fetch_etf_holdings(etf_ticker: str,
 # Stock info (only for new tickers)
 # ---------------------------------------------------------------------------
 
-def fetch_missing_stock_info(conn, tickers: List[str]) -> List[Tuple[str, str, str, str]]:
+def fetch_missing_stock_info(conn, tickers: List[str]) -> List[Tuple[str, str, str, str, str]]:
     """Fetch yfinance stock info only for tickers not already in dim_stock.
 
     Retries on rate limit (429) with exponential backoff.
-    Returns list of (ticker, company_name, sector, industry).
+    Returns list of (ticker, company_name, sector, industry, exchange).
     """
     existing = fetch_existing_stocks(conn)
     new_tickers = [t for t in tickers if t not in existing]
@@ -311,6 +311,7 @@ def fetch_missing_stock_info(conn, tickers: List[str]) -> List[Tuple[str, str, s
             info.get('longName') if info else None,
             info.get('sector') if info else None,
             info.get('industry') if info else None,
+            info.get('exchange') if info else None,
         ))
     return records
 
@@ -362,7 +363,7 @@ def onboard_new_etf(conn, etf_ticker: str,
 
     # Ensure all stocks in dim_stock (stub rows; stock_info fetched separately)
     existing = fetch_existing_stocks(conn)
-    new_stocks = [(t, None, None, None) for t in holdings if t not in existing]
+    new_stocks = [(t, None, None, None, None) for t in holdings if t not in existing]
     if new_stocks:
         bulk_upsert_dim_stock(conn, new_stocks)
 

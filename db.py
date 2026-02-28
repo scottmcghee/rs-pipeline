@@ -533,17 +533,18 @@ def upsert_junc_stock_etf(conn, ticker: str, etf_ticker: str) -> None:
 
 
 def bulk_upsert_dim_stock(conn, records: List[tuple]) -> None:
-    """records: list of (ticker, company_name, sector, industry)."""
+    """records: list of (ticker, company_name, sector, industry, exchange)."""
     if not records:
         return
     with conn.cursor() as cur:
         execute_values(cur, """
-            INSERT INTO dim_stock (ticker, company_name, sector, industry)
+            INSERT INTO dim_stock (ticker, company_name, sector, industry, exchange)
             VALUES %s
             ON CONFLICT (ticker) DO UPDATE SET
                 company_name = COALESCE(EXCLUDED.company_name, dim_stock.company_name),
                 sector = COALESCE(EXCLUDED.sector, dim_stock.sector),
-                industry = COALESCE(EXCLUDED.industry, dim_stock.industry)
+                industry = COALESCE(EXCLUDED.industry, dim_stock.industry),
+                exchange = COALESCE(EXCLUDED.exchange, dim_stock.exchange)
         """, records, page_size=500)
     conn.commit()
 

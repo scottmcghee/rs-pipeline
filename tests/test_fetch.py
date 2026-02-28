@@ -160,12 +160,13 @@ class TestFetchMissingStockInfo:
     @patch('rs_pipeline.fetch.fetch_existing_stocks', return_value={'AAPL'})
     def test_fetches_new(self, mock_existing, mock_info):
         mock_info.return_value = {
-            'longName': 'Google', 'sector': 'Tech', 'industry': 'Internet'
+            'longName': 'Google', 'sector': 'Tech', 'industry': 'Internet',
+            'exchange': 'NMS',
         }
         mock_conn = MagicMock()
         result = fetch_missing_stock_info(mock_conn, ['AAPL', 'GOOG'])
         assert len(result) == 1
-        assert result[0][0] == 'GOOG'
+        assert result[0] == ('GOOG', 'Google', 'Tech', 'Internet', 'NMS')
 
     @patch('rs_pipeline.fetch.time.sleep')
     @patch('rs_pipeline.fetch.yf.Ticker')
@@ -210,6 +211,8 @@ class TestOnboardNewEtf:
         new_stocks = mock_stock.call_args[0][1]
         tickers = [r[0] for r in new_stocks]
         assert 'B' in tickers and 'C' in tickers and 'A' not in tickers
+        # Stub rows should be 5-tuples with None fields
+        assert all(len(r) == 5 for r in new_stocks)
         # Junction for all 3
         assert mock_junc.call_args[0][1] == [('A', 'ARKK'), ('B', 'ARKK'), ('C', 'ARKK')]
 
