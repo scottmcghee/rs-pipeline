@@ -261,6 +261,14 @@ def verify_tickers_individually(tickers: List[str], start: str,
 # ETF holdings discovery
 # ---------------------------------------------------------------------------
 
+_INVALID_TICKERS = frozenset({"n/a", "na", "none", "null", ""})
+
+
+def _is_valid_ticker(ticker: str) -> bool:
+    """Reject junk tickers that sneak in from holdings sources."""
+    return bool(ticker) and ticker.strip().lower() not in _INVALID_TICKERS
+
+
 def fetch_etf_holdings(etf_ticker: str,
                        csv_dir: str = None) -> Optional[List[str]]:
     """Discover ETF constituents: CSV cache first, AlphaVantage fallback."""
@@ -270,7 +278,8 @@ def fetch_etf_holdings(etf_ticker: str,
     if os.path.exists(csv_path):
         logger.info("Reading holdings from %s", csv_path)
         df = pd.read_csv(csv_path)
-        return df['ticker'].tolist()
+        raw = df['ticker'].tolist()
+        return [t for t in raw if _is_valid_ticker(str(t))]
 
     # AlphaVantage fallback
     logger.info("Fetching holdings for %s from AlphaVantage", etf_ticker)
@@ -280,7 +289,8 @@ def fetch_etf_holdings(etf_ticker: str,
         resp = requests.get(url, timeout=15)
         resp.raise_for_status()
         data = resp.json()
-        return [h['symbol'] for h in data.get('holdings', [])]
+        raw = [h['symbol'] for h in data.get('holdings', [])]
+        return [t for t in raw if _is_valid_ticker(t)]
     except Exception as e:
         logger.error("AlphaVantage holdings fetch failed for %s: %s",
                      etf_ticker, e)

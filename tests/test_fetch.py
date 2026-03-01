@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from rs_pipeline.fetch import (
+    _is_valid_ticker,
     _normalise_ohlc,
     _twelve_data_download,
     _fetch_ticker_info_with_retry,
@@ -140,6 +141,35 @@ class TestFetchEtfHoldings:
         mock_resp = MagicMock()
         mock_resp.json.return_value = {
             'holdings': [{'symbol': 'AAPL'}, {'symbol': 'GOOG'}]
+        }
+        mock_get.return_value = mock_resp
+        result = fetch_etf_holdings('ARKK', csv_dir='/tmp')
+        assert result == ['AAPL', 'GOOG']
+
+
+class TestIsValidTicker:
+    @pytest.mark.parametrize("ticker", ["AAPL", "MSFT", "BRK-B", "SPY"])
+    def test_valid_tickers(self, ticker):
+        assert _is_valid_ticker(ticker) is True
+
+    @pytest.mark.parametrize("ticker", ["n/a", "N/A", "na", "NA", "none", "None",
+                                         "null", "NULL", "", " n/a "])
+    def test_invalid_tickers(self, ticker):
+        assert _is_valid_ticker(ticker) is False
+
+    @patch('rs_pipeline.fetch.os.path.exists', return_value=True)
+    @patch('rs_pipeline.fetch.pd.read_csv')
+    def test_csv_filters_invalid(self, mock_csv, mock_exists):
+        mock_csv.return_value = pd.DataFrame({'ticker': ['AAPL', 'n/a', 'MSFT']})
+        result = fetch_etf_holdings('SPY', csv_dir='/tmp')
+        assert result == ['AAPL', 'MSFT']
+
+    @patch('rs_pipeline.fetch.os.path.exists', return_value=False)
+    @patch('rs_pipeline.fetch.requests.get')
+    def test_alphavantage_filters_invalid(self, mock_get, mock_exists):
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            'holdings': [{'symbol': 'AAPL'}, {'symbol': 'n/a'}, {'symbol': 'GOOG'}]
         }
         mock_get.return_value = mock_resp
         result = fetch_etf_holdings('ARKK', csv_dir='/tmp')
