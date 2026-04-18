@@ -402,7 +402,7 @@ def rank_index_by_sql(conn, etf_ticker: str, start: str, end: str) -> int:
             SELECT date, ticker, etf_ticker,
                    PERCENT_RANK() OVER (
                        PARTITION BY date, etf_ticker
-                       ORDER BY relative_strength
+                       ORDER BY relative_strength NULLS FIRST
                    ) AS pct_rank
             FROM fact_stock_metrics
             WHERE date BETWEEN %s AND %s AND etf_ticker = %s
@@ -431,7 +431,7 @@ def rank_overall_by_sql(conn, start: str, end: str) -> int:
             SELECT date, ticker,
                    PERCENT_RANK() OVER (
                        PARTITION BY date
-                       ORDER BY avg_rs
+                       ORDER BY avg_rs NULLS FIRST
                    ) AS pct_rank
             FROM (
                 SELECT date, ticker, AVG(relative_strength) AS avg_rs
@@ -460,7 +460,7 @@ def rank_etf_index_by_sql(conn, ref_ticker: str, start: str, end: str) -> int:
             SELECT date, etf_ticker, ref_ticker,
                    PERCENT_RANK() OVER (
                        PARTITION BY date, ref_ticker
-                       ORDER BY relative_strength
+                       ORDER BY relative_strength NULLS FIRST
                    ) AS pct_rank
             FROM fact_etf_metrics
             WHERE date BETWEEN %s AND %s AND ref_ticker = %s
@@ -485,7 +485,7 @@ def rank_etf_overall_by_sql(conn, start: str, end: str) -> int:
             SELECT date, etf_ticker, ref_ticker,
                    PERCENT_RANK() OVER (
                        PARTITION BY date
-                       ORDER BY relative_strength
+                       ORDER BY relative_strength NULLS FIRST
                    ) AS pct_rank
             FROM fact_etf_metrics
             WHERE date BETWEEN %s AND %s
