@@ -71,18 +71,34 @@ def run_lock(settings: DbSettings) -> Iterator[bool]:
     Yields False if another run holds it. Two overlapping runs could
     otherwise write metrics computed from prices the other run has just
     replaced. The lock is a session-level advisory lock on its own
-    connection, released when the connection closes.
+    connection. It is released explicitly: the server drops a closed
+    connection's locks only once its backend exits, which can be after the
+    next run has already asked for the lock.
     """
     kwargs: dict[str, Any] = {**settings.as_kwargs(), **_KEEPALIVES}
     conn = psycopg2.connect(**kwargs)
+    acquired = False
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(hashtext('rs_pipeline'))")
             row = cur.fetchone()
         conn.commit()
-        yield bool(row and row[0])
+        acquired = bool(row and row[0])
+        yield acquired
     finally:
-        conn.close()
+        try:
+            if acquired and not conn.closed:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_unlock(hashtext('rs_pipeline'))")
+                conn.commit()
+        except psycopg2.Error:
+            # A dead session has already lost its lock; the run's own outcome matters more.
+            logger.warning(
+                "could not release the run lock; the server frees it when the session ends",
+                exc_info=True,
+            )
+        finally:
+            conn.close()
 
 
 def apply_schema(conn: Connection) -> None:

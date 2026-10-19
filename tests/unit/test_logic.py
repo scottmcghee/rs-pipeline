@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import ClassVar
 
 import pandas as pd
+import psycopg2
 import pytest
 
-from rs_pipeline import cli, config
+from rs_pipeline import cli, config, db
 from rs_pipeline.config import DbSettings, Settings
 from rs_pipeline.pipeline import RunOptions, last_completed_session, lookback_start
 from rs_pipeline.retry import is_rate_limit, with_backoff
@@ -337,3 +338,55 @@ class TestSectorMap:
         assert sectors["Technology"] == "XLK"
         assert len(sectors) == 11
         assert industries
+
+
+class _DeadOnUnlock:
+    """A connection that takes the run lock, then dies before releasing it."""
+
+    closed = 0
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.was_closed = False
+
+    def cursor(self) -> _DeadOnUnlock:
+        return self
+
+    def __enter__(self) -> _DeadOnUnlock:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        pass
+
+    def execute(self, query: str, params: object = None) -> None:
+        self.calls += 1
+        if "unlock" in query:
+            raise psycopg2.OperationalError("server closed the connection unexpectedly")
+
+    def fetchone(self) -> tuple[bool]:
+        return (True,)
+
+    def commit(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.was_closed = True
+
+
+class TestRunLockRelease:
+    @pytest.fixture
+    def dead(self, monkeypatch: pytest.MonkeyPatch) -> _DeadOnUnlock:
+        conn = _DeadOnUnlock()
+        monkeypatch.setattr(db.psycopg2, "connect", lambda **_: conn)
+        return conn
+
+    def test_a_failed_release_does_not_fail_a_finished_run(self, dead: _DeadOnUnlock) -> None:
+        with db.run_lock(DbSettings()) as acquired:
+            assert acquired
+        assert dead.calls == 2  # the unlock was attempted
+        assert dead.was_closed
+
+    def test_a_failed_release_does_not_hide_an_interrupt(self, dead: _DeadOnUnlock) -> None:
+        with pytest.raises(KeyboardInterrupt), db.run_lock(DbSettings()):
+            raise KeyboardInterrupt
+        assert dead.was_closed

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import date
+from unittest import mock
 
 import pandas as pd
 import psycopg2
@@ -717,6 +718,29 @@ class TestStateAndLocking:
                 assert not second
         with db.run_lock(db_settings) as again:  # type: ignore[arg-type]
             assert again
+
+    def test_the_lock_is_free_as_soon_as_a_run_ends(
+        self, db_settings: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Model a server slow to end the closed connection's backend: closing
+        # doesn't end the session, so only an explicit unlock frees the lock.
+        lingering: list[Connection] = []
+        connect = psycopg2.connect
+
+        def connect_and_linger(*args: object, **kwargs: object) -> Connection:
+            conn = connect(*args, **kwargs)
+            lingering.append(conn)
+            return mock.Mock(wraps=conn, closed=0, close=lambda: None)
+
+        monkeypatch.setattr(db.psycopg2, "connect", connect_and_linger)
+        try:
+            with db.run_lock(db_settings) as first:  # type: ignore[arg-type]
+                assert first
+            with db.run_lock(db_settings) as second:  # type: ignore[arg-type]
+                assert second
+        finally:
+            for conn in lingering:
+                conn.close()
 
 
 def test_onboarding_an_etf_later_matches_a_full_run(
