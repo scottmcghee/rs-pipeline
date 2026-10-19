@@ -21,7 +21,13 @@ services:
       # version changes: the new server refuses to start over old data files.
       - pgdata18:/var/lib/postgresql
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "stocks"]
+      # Over TCP: during first-time setup the image runs a temporary server on the
+      # Unix socket only, which a socket check would already report as ready.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "stocks"]
+      # First-time setup can take a minute or more on a busy machine; failed
+      # checks during the start period don't count.
+      start_period: 180s
+      start_interval: 1s
       interval: 2s
       timeout: 3s
       retries: 30
