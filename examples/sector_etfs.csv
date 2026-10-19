@@ -1,0 +1,17 @@
+kind,name,etf
+sector,Basic Materials,XLB
+sector,Communication Services,XLC
+sector,Consumer Cyclical,XLY
+sector,Consumer Defensive,XLP
+sector,Energy,XLE
+sector,Financial Services,XLF
+sector,Healthcare,XLV
+sector,Industrials,XLI
+sector,Real Estate,XLRE
+sector,Technology,XLK
+sector,Utilities,XLU
+industry,Semiconductors,SMH
+industry,Banks - Regional,KRE
+industry,Biotechnology,XBI
+industry,Aerospace & Defense,ITA
+industry,Oil & Gas E&P,XOP

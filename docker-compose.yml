@@ -1,0 +1,42 @@
+# Offline demo: PostgreSQL plus the pipeline running over a fictional market.
+#
+#   docker compose up --build                     # seed, run every step, print the leaders
+#   docker compose run --rm pipeline top -n 10    # any rs-pipeline command
+#   docker compose down -v                        # remove the demo database
+name: rs-pipeline-demo
+
+services:
+  db:
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_DB: stocks
+      POSTGRES_PASSWORD: demo
+    ports:
+      # psql -h localhost -p 54320 -U postgres stocks (DEMO_DB_PORT changes the port)
+      - "127.0.0.1:${DEMO_DB_PORT:-54320}:5432"
+    stop_grace_period: 30s
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "stocks"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  pipeline:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: stocks
+      DB_PASSWORD: demo
+      RS_SOURCE: synthetic
+      RS_REF_TICKER: MKT
+      RS_BENCHMARK_TICKERS: MKT
+      RS_HISTORY_START: "2022-01-03"
+    command: ["demo"]
+
+volumes:
+  pgdata:
