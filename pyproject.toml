@@ -11,6 +11,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
 # Tested versions are pinned in uv.lock; the upper bounds keep `pip install .` safe.
@@ -55,7 +56,7 @@ packages = ["src/rs_pipeline"]
 [tool.hatch.build.targets.sdist]
 include = [
     "src", "tests", "examples", "docs", "scripts", "README.md", "CONTRIBUTING.md", "LICENSE",
-    "pyproject.toml", "uv.lock",
+    "pyproject.toml", "uv.lock", "docker-compose.yml", "Dockerfile",
 ]
 
 [tool.ruff]

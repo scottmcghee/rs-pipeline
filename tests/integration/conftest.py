@@ -11,9 +11,11 @@ from __future__ import annotations
 import itertools
 import logging
 import os
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 
 import pandas as pd
 import psycopg2
@@ -35,10 +37,11 @@ SETTINGS_OVERRIDES = {
     "history_start": date(2022, 7, 1),
 }
 
-# The same image as docker-compose.yml, pinned by digest.
-POSTGRES_IMAGE = (
-    "postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24"
-)
+# The demo's image, pinned by digest, so the tests follow its Dependabot bumps.
+_COMPOSE = Path(__file__).parents[2] / "docker-compose.yml"
+_image = re.search(r"image: (postgres:\S+)", _COMPOSE.read_text())
+assert _image, f"no postgres image in {_COMPOSE}"
+POSTGRES_IMAGE = _image[1]
 
 MakeContext = Callable[..., Context]
 _names = itertools.count()

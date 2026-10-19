@@ -35,7 +35,7 @@ it isn't directly testable.
 | NFR-8 **Bounded memory** | Memory grows with max-workers × the largest ETF's membership × the history loaded: the look-back on a normal day, full history for series without metrics. It never grows with the whole metrics table. | `compute-rs` loads one ETF at a time per worker; ranking happens in SQL |
 | NFR-9 **No stale connections** | No vendor call runs inside an open transaction; the metadata lookups and the re-check of missed tickers hold no connection; connections aren't kept idle between uses. | `test_reads_do_not_leave_a_transaction_open`, `test_connections_dropped_by_the_server_are_never_reused` |
 | NFR-10 **Security** | No secrets in code or defaults. Credentials come from the environment and never appear in logs, including third-party debug logs. SQL identifiers are constants or composed with `psycopg2.sql`, and values are always bound parameters. | `test_no_secret_defaults`, `test_secrets_stay_out_of_repr`, `test_alphavantage_failure_does_not_log_the_key`, `test_errors_skip_the_batch_without_logging_the_key`, `test_rejects_unknown_ohlc_table`, gitleaks in CI and pre-commit |
-| NFR-11 **Portability** | Python 3.12+ and PostgreSQL (tested on 17). The container runs as a non-root user that can't modify the installed code. | CI matrix (3.12, 3.13); Dockerfile |
+| NFR-11 **Portability** | Python 3.12+ and PostgreSQL (tested on 18). The container runs as a non-root user that can't modify the installed code. | CI matrix (3.12, 3.13, 3.14); Dockerfile |
 | NFR-12 **Maintainability** | Strict typing, lint, a 90% coverage floor (lines and branches), vendors isolated behind protocols, and pinned CI actions and base images. | CI `lint` and `test` jobs; Dependabot |
 
 ## Performance

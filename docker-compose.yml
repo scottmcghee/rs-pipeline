@@ -7,7 +7,7 @@ name: rs-pipeline-demo
 
 services:
   db:
-    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     environment:
       POSTGRES_DB: stocks
       POSTGRES_PASSWORD: demo
@@ -16,7 +16,10 @@ services:
       - "127.0.0.1:${DEMO_DB_PORT:-54320}:5432"
     stop_grace_period: 30s
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # The postgres 18+ image keeps its data in a versioned directory under
+      # this one. Rename the volume (pgdata19, ...) when the image's major
+      # version changes: the new server refuses to start over old data files.
+      - pgdata18:/var/lib/postgresql
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-d", "stocks"]
       interval: 2s
@@ -39,4 +42,4 @@ services:
     command: ["demo"]
 
 volumes:
-  pgdata:
+  pgdata18:

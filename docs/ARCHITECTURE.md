@@ -151,14 +151,14 @@ Bookkeeping tables support the invariants in [DESIGN.md](DESIGN.md):
 - `pipeline_state` for the rolling window the stored metrics use.
 
 The full DDL is in [`src/rs_pipeline/schema.sql`](../src/rs_pipeline/schema.sql),
-plain PostgreSQL, tested on 17.
+plain PostgreSQL, tested on 18.
 
 ## Testing
 
 | Layer | Where | Needs | What it shows |
 |---|---|---|---|
 | Unit | `tests/unit` | nothing | Metric math and its exact trailing bound, download planning, restatement detection, cutoffs and history checks, sessions, vendor clients (mocked), synthetic market, settings, CLI parsing |
-| Integration | `tests/integration` | Docker | Real SQL on PostgreSQL 17: rankings, upserts, the rebuild queue, connection handling and the run lock, failures and delisting, restatement repair, the CLI, and whole-pipeline invariants (incremental = full, idempotence) |
+| Integration | `tests/integration` | Docker | Real SQL on PostgreSQL 18: rankings, upserts, the rebuild queue, connection handling and the run lock, failures and delisting, restatement repair, the CLI, and whole-pipeline invariants (incremental = full, idempotence) |
 | Demo | `docker compose up` | Docker | A clean checkout builds, seeds, runs and reports |
 
 All three run in CI. Each integration test gets its own database, cloned from

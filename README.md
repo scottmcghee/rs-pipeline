@@ -1,7 +1,7 @@
 # rs-pipeline
 
 [![CI](https://github.com/scottmcghee/rs-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/scottmcghee/rs-pipeline/actions/workflows/ci.yml)
-![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)
+![Python 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 A daily batch pipeline that ranks stocks by **relative strength (RS)**: how
@@ -15,7 +15,7 @@ It downloads daily prices, computes trailing momentum metrics for every
 (stock, ETF) pair, and stores percentile rankings in PostgreSQL, where
 dashboards and screeners can read them. It runs unattended from cron.
 
-*Python 3.12, pandas and NumPy, PostgreSQL, Docker. Unit tests, plus
+*Python 3.12+, pandas and NumPy, PostgreSQL, Docker. Unit tests, plus
 integration tests against a real PostgreSQL.*
 
 ## Design highlights
@@ -184,7 +184,7 @@ uv run pytest                          # everything; integration tests need Dock
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the individual checks. CI runs
-lint, strict type checks, the tests on Python 3.12 and 3.13 with a 90%
+lint, strict type checks, the tests on Python 3.12, 3.13 and 3.14 with a 90%
 coverage floor, a secret scan, and the Docker demo.
 
 ## Documentation
