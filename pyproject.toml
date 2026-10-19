@@ -16,7 +16,7 @@ classifiers = [
 # Tested versions are pinned in uv.lock; the upper bounds keep `pip install .` safe.
 dependencies = [
     "numpy>=2.0,<3",
-    "pandas>=2.2,<3",
+    "pandas>=2.2,<4",
     "psycopg2-binary>=2.9.9,<3",
     "requests>=2.32,<3",
     "tzdata>=2024.1",  # time zone data on systems without it (e.g. slim containers)
