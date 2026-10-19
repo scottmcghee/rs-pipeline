@@ -1,3 +1,29 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Secrets and local data
 .env
+.env.*
+!.env.example
+*.csv
+!examples/**/*.csv
+*.parquet
+*.log
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store

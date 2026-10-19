@@ -1,0 +1,97 @@
+[project]
+name = "rs-pipeline"
+version = "1.0.0"
+description = "Batch pipeline that ranks stocks by relative strength against the ETFs that hold them."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Scott McGhee" }]
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+# Tested versions are pinned in uv.lock; the upper bounds keep `pip install .` safe.
+dependencies = [
+    "numpy>=2.0,<3",
+    "pandas>=2.2,<3",
+    "psycopg2-binary>=2.9.9,<3",
+    "requests>=2.32,<3",
+    "tzdata>=2024.1",  # time zone data on systems without it (e.g. slim containers)
+    "yfinance>=0.2.50,<2",
+]
+
+[project.optional-dependencies]
+twelvedata = ["twelvedata[pandas]>=1.2,<2"]
+
+[project.scripts]
+rs-pipeline = "rs_pipeline.cli:main"
+
+[project.urls]
+Repository = "https://github.com/scottmcghee/rs-pipeline"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13",
+    "pandas-stubs>=2.2",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+    "testcontainers[postgres]>=4.8",
+    "types-psycopg2>=2.9",
+    "types-requests>=2.32",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rs_pipeline"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src", "tests", "examples", "docs", "scripts", "README.md", "CONTRIBUTING.md", "LICENSE",
+    "pyproject.toml", "uv.lock",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PT", "C4", "PD", "S608"]
+
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S608"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "scripts"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["yfinance.*", "twelvedata.*", "testcontainers.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration"]  # fast failures first
+addopts = "-ra --strict-markers"
+markers = ["integration: needs Docker; starts a throwaway PostgreSQL container"]
+filterwarnings = ["error::FutureWarning", "error::RuntimeWarning"]
+
+[tool.coverage.run]
+omit = ["*/__main__.py"]  # exercised in a subprocess
+source = ["rs_pipeline"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 90
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "\\.\\.\\."]

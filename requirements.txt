@@ -1,7 +1,0 @@
-pandas
-numpy
-psycopg2-binary
-yfinance
-requests
-twelvedata[pandas]
-pytest
